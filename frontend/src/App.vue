@@ -101,7 +101,7 @@ async function simulate() {
       } else {
         clearInterval(intervalId);
       }
-    }, 25);
+    }, 15);
 
   } catch (error) {
     console.error("Simulation error", error);

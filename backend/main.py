@@ -14,6 +14,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def magnitude_to_amplitude(magnitude):
+    energy = 10 ** (1.5 * magnitude)
+    return np.sqrt(energy) / 1e5  # normalization
+
+
 class EarthquakeInput(BaseModel):
     magnitude: float
     duration: float
@@ -21,6 +26,8 @@ class EarthquakeInput(BaseModel):
 
 @app.post("/simulate")
 def simulate_quake(data: EarthquakeInput):
+
+    A = magnitude_to_amplitude(data.magnitude)
     # -------------------------
     # TIME SETTINGS
     # -------------------------
@@ -31,20 +38,20 @@ def simulate_quake(data: EarthquakeInput):
     # EARTHQUAKE GROUND MOTION
     # -------------------------
     p_wave = (
-        0.3 * data.magnitude *
+        0.3 * A *
         np.exp(-0.15 * t) *
         np.sin(2 * np.pi * (data.frequency * 2) * t)
     )
 
     s_wave = (
-        0.6 * data.magnitude *
+        0.6 * A *
         np.exp(-0.1 * (t - 1)) *
         np.sin(2 * np.pi * data.frequency * (t - 1))
     )
     s_wave[t < 1] = 0
 
     surface_wave = (
-        data.magnitude *
+        A *
         np.exp(-0.05 * (t - 2)) *
         np.sin(2 * np.pi * (data.frequency * 0.5) * (t - 2))
     )
@@ -55,7 +62,8 @@ def simulate_quake(data: EarthquakeInput):
     # -------------------------
     # NOISE
     # -------------------------
-    noise = np.random.normal(0, 0.05 * data.magnitude, size=len(t))
+    noise_strength = 0.03 * A
+    noise = np.random.normal(0, noise_strength, size=len(t))
     ground_motion += noise
 
     # -------------------------
