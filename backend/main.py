@@ -1,9 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-import uvicorn
+from collections import deque
 
 app = FastAPI()
 
@@ -14,9 +13,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+#----------------------
+# Simulation Part
+#----------------------
+
 def magnitude_to_amplitude(magnitude):
     energy = 10 ** (1.5 * magnitude)
-    return np.sqrt(energy) / 1e5  # normalization
+    return np.sqrt(energy) / 1e5 
 
 
 class EarthquakeInput(BaseModel):
@@ -28,15 +31,11 @@ class EarthquakeInput(BaseModel):
 def simulate_quake(data: EarthquakeInput):
 
     A = magnitude_to_amplitude(data.magnitude)
-    # -------------------------
-    # TIME SETTINGS
-    # -------------------------
-    dt = 0.01  # 100 Hz sampling
+    
+    dt = 0.01 
     t = np.arange(0, data.duration, dt)
 
-    # -------------------------
-    # EARTHQUAKE GROUND MOTION
-    # -------------------------
+  
     p_wave = (
         0.3 * A *
         np.exp(-0.15 * t) *
@@ -59,16 +58,12 @@ def simulate_quake(data: EarthquakeInput):
 
     ground_motion = p_wave + s_wave + surface_wave
 
-    # -------------------------
-    # NOISE
-    # -------------------------
+   
     noise_strength = 0.03 * A
     noise = np.random.normal(0, noise_strength, size=len(t))
     ground_motion += noise
 
-    # -------------------------
-    # MASS–SPRING–DAMPER
-    # -------------------------
+   
     m, k, c = 1.0, 20.0, 5.0
     x, v = 0.0, 0.0
     recorded = []
@@ -83,13 +78,9 @@ def simulate_quake(data: EarthquakeInput):
 
     recorded = np.array(recorded)
 
-    # -------------------------
-    # FFT SIGNAL PROCESSING
-    # -------------------------
     fft_vals = np.fft.fft(recorded)
     freqs = np.fft.fftfreq(len(fft_vals), dt)
 
-    # Keep only positive frequencies
     positive = freqs > 0
     freqs = freqs[positive]
     spectrum = np.abs(fft_vals[positive])
@@ -102,7 +93,79 @@ def simulate_quake(data: EarthquakeInput):
     }
 
 
-# app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+#----------------------
+# WebSocket Part
+#----------------------
 
-# if __name__ == "__main__":
-#     uvicorn.run(app, host="127.0.0.1", port=8000)
+sensor_buffer = deque(maxlen=500)  
+display_clients = set()             
+
+SAMPLE_RATE = 100
+
+
+# signal processing function
+
+def process_signal(buffer):
+
+    if len(buffer) < 20:
+        return None
+
+    signal = np.array(buffer, dtype=float)
+
+    
+    signal = signal - np.mean(signal)
+
+    signal = signal / (np.max(np.abs(signal)) + 1e-6)
+
+    return signal.tolist()
+
+# sensor socket (phone)
+
+@app.websocket("/sensor")
+async def sensor_stream(ws: WebSocket):
+    await ws.accept()
+    print("📱 Sensor connected")
+
+    try:
+        while True:
+            data = await ws.receive_json()
+
+            ax = float(data["ax"])
+            ay = float(data["ay"])
+            az = float(data["az"])
+
+            a = np.sqrt(ax**2 + ay**2 + az**2)
+            sensor_buffer.append(a)
+
+            print(f"📥 Buffer size: {len(sensor_buffer)}")
+
+            if len(sensor_buffer) >= 20:
+                processed = process_signal(sensor_buffer)
+
+                if processed:
+                    print("📤 Broadcasting waveform")
+
+                    for client in list(display_clients):
+                        await client.send_json({
+                            "waveform": processed
+                        })
+
+                sensor_buffer.clear()
+
+    except WebSocketDisconnect:
+        print("📱 Sensor disconnected")
+
+# display socket (web client)
+
+@app.websocket("/display")
+async def display_stream(ws: WebSocket):
+    await ws.accept()
+    display_clients.add(ws)
+    print("🖥️ Display connected")
+
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        display_clients.discard(ws)
+        print("🖥️ Display disconnected")
