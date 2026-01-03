@@ -33,7 +33,7 @@ function connectSocket() {
   status.value = "Connecting to backend...";
 
   // change the IP address and port as needed
-  socket = new WebSocket("ws://192.168.8.145:8000/sensor");
+  socket = new WebSocket("ws://10.53.25.190:8000/sensor");
 
   socket.onopen = () => {
     connected.value = true;

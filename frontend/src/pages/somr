@@ -20,9 +20,9 @@ onMounted(() => {
       labels: [],
       datasets: [
         {
-          label: "Raw Ground Motion",
+          label: "Live Seismograph Signal",
           data: [],
-          borderColor: "#95a5a6",
+          borderColor: "#2ecc71",
           borderWidth: 2,
           pointRadius: 0,
         }
@@ -49,9 +49,9 @@ onMounted(() => {
       labels: [],
       datasets: [
         {
-          label: "P-Wave (High-Frequency)",
+          label: "Live Seismograph Signal",
           data: [],
-          borderColor: "#3498db",
+          borderColor: "red",
           borderWidth: 2,
           pointRadius: 0,
         }
@@ -78,9 +78,9 @@ onMounted(() => {
       labels: [],
       datasets: [
         {
-          label: "S-Wave (Low-Frequency)",
+          label: "Live Seismograph Signal",
           data: [],
-          borderColor: "#e74c3c",
+          borderColor: "blue",
           borderWidth: 2,
           pointRadius: 0,
         }
@@ -104,23 +104,6 @@ onMounted(() => {
   connectSocket();
 });
 
-function updateChart(chartInstance, values) {
-  if (!chartInstance || !Array.isArray(values)) return;
-
-  values.forEach((value) => {
-    chartInstance.data.labels.push("");
-    chartInstance.data.datasets[0].data.push(value);
-
-    if (chartInstance.data.datasets[0].data.length > MAX_POINTS) {
-      chartInstance.data.labels.shift();
-      chartInstance.data.datasets[0].data.shift();
-    }
-  });
-
-  chartInstance.update("none");
-}
-
-
 function connectSocket() {
 
   // change the IP address and port as needed
@@ -132,11 +115,42 @@ function connectSocket() {
 
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
+
     if (!data) return;
 
-    updateChart(chart, data.raw);
-    updateChart(pchart, data.p_wave);
-    updateChart(schart, data.s_wave);
+    data.raw.forEach((value) => {
+      chart.data.labels.push("");
+      chart.data.datasets[0].data.push(value);
+
+      if (chart.data.datasets[0].data.length > MAX_POINTS) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+    });
+
+    data.p_wave.forEach((value) => {
+      pchart.data.labels.push("");
+      pchart.data.datasets[0].data.push(value);
+
+      if (pchart.data.datasets[0].data.length > MAX_POINTS) {
+        pchart.data.labels.shift();
+        pchart.data.datasets[0].data.shift();
+      }
+    });
+
+    data.s_wave.forEach((value) => {
+      schart.data.labels.sush("");
+      schart.data.datasets[0].data.push(value);
+
+      if (schart.data.datasets[0].data.length > MAX_POINTS) {
+        schart.data.labels.shift();
+        schart.data.datasets[0].data.shift();
+      }
+    });
+
+    chart.update("none");
+    pchart.update("none");
+    schart.update("none");
   };
 
   socket.onclose = () => {
