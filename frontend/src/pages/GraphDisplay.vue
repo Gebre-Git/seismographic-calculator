@@ -2,153 +2,132 @@
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import Chart from "chart.js/auto";
 
-const canvasRef = ref(null);
+const rawRef = ref(null);
 const pwaveRef = ref(null);
 const swaveRef = ref(null);
+const dispRef = ref(null);
+const velocityRef = ref(null);
 
-let chart = null;
-let pchart = null;
-let schart = null;
+let rawChart = null;
+let pChart = null;
+let sChart = null;
+let dChart = null;
+let vChart = null;
+
 let socket = null;
 
 const MAX_POINTS = 200;
 
+function createChart(ctx, label, color, yLabel = "Normalized") {
+  return new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [{
+        label,
+        data: [],
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: { display: false },
+        y: {
+          suggestedMin: -1,
+          suggestedMax: 1,
+          title: { display: true, text: yLabel }
+        }
+      }
+    }
+  });
+}
+
+function updateChart(chart, values) {
+  if (!chart || !Array.isArray(values)) return;
+
+  values.forEach(v => {
+    chart.data.labels.push("");
+    chart.data.datasets[0].data.push(v);
+
+    if (chart.data.datasets[0].data.length > MAX_POINTS) {
+      chart.data.labels.shift();
+      chart.data.datasets[0].data.shift();
+    }
+  });
+
+  chart.update("none");
+}
+
 onMounted(() => {
-  chart = new Chart(canvasRef.value.getContext("2d"), {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "Raw Ground Motion",
-          data: [],
-          borderColor: "#95a5a6",
-          borderWidth: 2,
-          pointRadius: 0,
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: { display: false },
-        y: {
-          suggestedMin: -1,
-          suggestedMax: 1,
-          title: { display: true, text: "Normalized Amplitude" }
-        }
-      }
-    }
-  });
+  rawChart = createChart(
+    rawRef.value.getContext("2d"),
+    "Raw Acceleration",
+    "#95a5a6"
+  );
 
-  pchart = new Chart(pwaveRef.value.getContext("2d"), {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "P-Wave (High-Frequency)",
-          data: [],
-          borderColor: "#3498db",
-          borderWidth: 2,
-          pointRadius: 0,
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: { display: false },
-        y: {
-          suggestedMin: -1,
-          suggestedMax: 1,
-          title: { display: true, text: "Normalized Amplitude" }
-        }
-      }
-    }
-  });
+  pChart = createChart(
+    pwaveRef.value.getContext("2d"),
+    "P-Wave (High Frequency)",
+    "#3498db"
+  );
 
-  schart = new Chart(swaveRef.value.getContext("2d"), {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "S-Wave (Low-Frequency)",
-          data: [],
-          borderColor: "#e74c3c",
-          borderWidth: 2,
-          pointRadius: 0,
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: { display: false },
-        y: {
-          suggestedMin: -1,
-          suggestedMax: 1,
-          title: { display: true, text: "Normalized Amplitude" }
-        }
-      }
-    }
-  });
+  sChart = createChart(
+    swaveRef.value.getContext("2d"),
+    "S-Wave (Low Frequency)",
+    "#e74c3c"
+  );
+
+  dChart = createChart(
+    dispRef.value.getContext("2d"),
+    "Ground Displacement",
+    "#f1c40f",
+    "Relative Displacement"
+  );
+
+  vChart = createChart(
+    velocityRef.value.getContext("2d"),
+    "Ground Velocity",
+    "#9b59b6",
+    "Relative Velocity"
+  );
 
   connectSocket();
 });
 
-function updateChart(chartInstance, values) {
-  if (!chartInstance || !Array.isArray(values)) return;
-
-  values.forEach((value) => {
-    chartInstance.data.labels.push("");
-    chartInstance.data.datasets[0].data.push(value);
-
-    if (chartInstance.data.datasets[0].data.length > MAX_POINTS) {
-      chartInstance.data.labels.shift();
-      chartInstance.data.datasets[0].data.shift();
-    }
-  });
-
-  chartInstance.update("none");
-}
-
-
 function connectSocket() {
-
-  // change the IP address and port as needed
-  socket = new WebSocket("ws://10.53.25.190:8000/display");
+  socket = new WebSocket("ws://192.168.30.186:8000/display");
 
   socket.onopen = () => {
-    console.log("🖥️ Display connected to backend");
+    console.log("🖥️ Connected to backend");
   };
 
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (!data) return;
 
-    updateChart(chart, data.raw);
-    updateChart(pchart, data.p_wave);
-    updateChart(schart, data.s_wave);
+    updateChart(rawChart, data.raw);
+    updateChart(pChart, data.p_wave);
+    updateChart(sChart, data.s_wave);
+    updateChart(dChart, data.displacement);
+    updateChart(vChart, data.velocity);
   };
 
   socket.onclose = () => {
-    console.warn("🖥️ Display disconnected");
+    console.warn("🖥️ WebSocket disconnected");
   };
 }
 
 onBeforeUnmount(() => {
-  if (socket) socket.close();
-  if (chart) chart.destroy();
-  if (pchart) pchart.destroy();
-  if (schart) schart.destroy();
+  socket?.close();
+  rawChart?.destroy();
+  pChart?.destroy();
+  sChart?.destroy();
+  dChart?.destroy();
 });
 </script>
 
@@ -156,23 +135,35 @@ onBeforeUnmount(() => {
   <div class="display-container">
     <h2>🖥️ Real-Time Digital Seismograph</h2>
     <p class="subtitle">
-      Live ground vibration data streamed from mobile sensor
+      Live ground vibration data streamed from mobile accelerometer
     </p>
 
-    <div class="chart-wrapper">
-      <canvas ref="canvasRef"></canvas>
+    <div class="chart-wrapper raw">
+      <canvas ref="rawRef"></canvas>
     </div>
 
-    <v-divider class="my-4"></v-divider>
+    <v-divider class="my-4" />
 
-    <div class="chart-wrapper">
+    <div class="chart-wrapper p">
       <canvas ref="pwaveRef"></canvas>
     </div>
 
-    <v-divider class="my-4"></v-divider>
+    <v-divider class="my-4" />
 
-    <div class="chart-wrapper">
+    <div class="chart-wrapper s">
       <canvas ref="swaveRef"></canvas>
+    </div>
+
+    <v-divider class="my-4" />
+
+    <div class="chart-wrapper displacement">
+      <canvas ref="dispRef"></canvas>
+    </div>
+
+    <v-divider class="my-4" />
+
+    <div class="chart-wrapper velocity">
+      <canvas ref="velocityRef"></canvas>
     </div>
   </div>
 </template>
@@ -188,14 +179,33 @@ onBeforeUnmount(() => {
 .subtitle {
   font-size: 0.9rem;
   color: #aaa;
-  margin-bottom: 10px;
+  margin-bottom: 16px;
 }
 
 .chart-wrapper {
-  height: 400px;
+  height: 300px;
   background: #151515;
   border-radius: 8px;
   padding: 10px;
-  border-left: 4px solid #2ecc71;
+}
+
+.chart-wrapper.raw {
+  border-left: 4px solid #95a5a6;
+}
+
+.chart-wrapper.p {
+  border-left: 4px solid #3498db;
+}
+
+.chart-wrapper.s {
+  border-left: 4px solid #e74c3c;
+}
+
+.chart-wrapper.displacement {
+  border-left: 4px solid #f1c40f;
+}
+
+.chart-wrapper.velocity {
+  border-left: 4px solid #9b59b6;
 }
 </style>

@@ -93,19 +93,22 @@ def simulate_quake(data: EarthquakeInput):
     }
 
 
-#----------------------
-# WebSocket Part
-#----------------------
 
-sensor_buffer = deque(maxlen=500)  
-display_clients = set()             
+# ---------------------------------------------------
+# real time seismograph processing
+# -----------------------------------------------------
 
-SAMPLE_RATE = 100
+sensor_buffer = deque(maxlen=500)
+display_clients = set()
 
-#low and high pass singal filters
+SAMPLE_RATE = 100  # Hz
+DT = 1 / SAMPLE_RATE
+
+
+# P waves and S waves filtering
 
 def low_pass(signal, alpha=0.1):
-    """Simple low-pass filter (S-waves)"""
+    """S-waves (lower frequency)"""
     filtered = []
     y = signal[0]
     for x in signal:
@@ -115,47 +118,58 @@ def low_pass(signal, alpha=0.1):
 
 
 def high_pass(signal, alpha=0.1):
-    """Simple high-pass filter (P-waves)"""
+    """P-waves (higher frequency)"""
     filtered = []
     y = signal[0]
     prev_x = signal[0]
-
     for x in signal:
         y = alpha * (y + x - prev_x)
         filtered.append(y)
         prev_x = x
-
     return filtered
 
+
+# Numerical Integration
+
+def integrate(signal, dt):
+    integrated = np.zeros(len(signal))
+    for i in range(1, len(signal)):
+        integrated[i] = integrated[i-1] + 0.5 * (signal[i] + signal[i-1]) * dt
+    return integrated
 
 
 # signal processing function
 
 def process_signal(buffer):
 
-    if len(buffer) < 20:
+    if len(buffer) < 50:
         return None
 
-    signal = np.array(buffer, dtype=float)
+    acc = np.array(buffer, dtype=float)
 
-    
-    signal = signal - np.mean(signal)
+    acc = acc - np.mean(acc)
 
-    signal = signal / (np.max(np.abs(signal)) + 1e-6)
+    acc = acc / (np.max(np.abs(acc)) + 1e-6)
 
-    signal =  signal.tolist()
+    velocity = integrate(acc, DT)
+    velocity -= np.mean(velocity)
 
-     # Separate waves
-    p_wave = high_pass(signal, alpha=0.15)
-    s_wave = low_pass(signal, alpha=0.05)
+    displacement = integrate(velocity, DT)
+    displacement /= np.max(np.abs(displacement)) + 1e-6
+
+    p_wave = high_pass(displacement, alpha=0.15)
+    s_wave = low_pass(displacement, alpha=0.05)
 
     return {
-        "raw": signal,
+        "raw": acc.tolist(),
+        "velocity": velocity.tolist(),
+        "displacement": displacement.tolist(),
         "p_wave": p_wave,
         "s_wave": s_wave
     }
 
-# sensor socket (phone)
+
+# sensor websocket
 
 @app.websocket("/sensor")
 async def sensor_stream(ws: WebSocket):
@@ -170,17 +184,12 @@ async def sensor_stream(ws: WebSocket):
             ay = float(data["ay"])
             az = float(data["az"])
 
-            a = np.sqrt(ax**2 + ay**2 + az**2)
-            sensor_buffer.append(a)
+            sensor_buffer.append(az)
 
-            print(f"📥 Buffer size: {len(sensor_buffer)}")
-
-            if len(sensor_buffer) >= 20:
+            if len(sensor_buffer) >= 50:
                 processed = process_signal(sensor_buffer)
 
                 if processed:
-                    print("📤 Broadcasting waveform")
-
                     for client in list(display_clients):
                         await client.send_json(processed)
 
@@ -189,7 +198,8 @@ async def sensor_stream(ws: WebSocket):
     except WebSocketDisconnect:
         print("📱 Sensor disconnected")
 
-# display socket (web client)
+
+# display websocket
 
 @app.websocket("/display")
 async def display_stream(ws: WebSocket):
