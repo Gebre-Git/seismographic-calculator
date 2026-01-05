@@ -8,6 +8,8 @@ const swaveRef = ref(null);
 const dispRef = ref(null);
 const velocityRef = ref(null);
 
+const distance = ref(null);
+
 let rawChart = null;
 let pChart = null;
 let sChart = null;
@@ -115,6 +117,10 @@ function connectSocket() {
     updateChart(sChart, data.s_wave);
     updateChart(dChart, data.displacement);
     updateChart(vChart, data.velocity);
+
+    if (data.distance_km !== null) {
+      distance.value = data.distance_km.toFixed(1);
+    }
   };
 
   socket.onclose = () => {
@@ -137,6 +143,13 @@ onBeforeUnmount(() => {
     <p class="subtitle">
       Live ground vibration data streamed from mobile accelerometer
     </p>
+
+    <div class="distance-box">
+      Estimated Epicenter Distance:
+      <strong>{{ distance }} km</strong>
+    </div>
+
+    <v-divider class="my-4"></v-divider>
 
     <div class="chart-wrapper raw">
       <canvas ref="rawRef"></canvas>
@@ -208,4 +221,13 @@ onBeforeUnmount(() => {
 .chart-wrapper.velocity {
   border-left: 4px solid #9b59b6;
 }
+
+.distance-box {
+  background: #111;
+  padding: 12px;
+  border-left: 4px solid #9b59b6;
+  margin-bottom: 16px;
+  font-size: 1.1rem;
+}
+
 </style>

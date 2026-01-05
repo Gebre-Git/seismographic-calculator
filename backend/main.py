@@ -101,8 +101,11 @@ def simulate_quake(data: EarthquakeInput):
 sensor_buffer = deque(maxlen=500)
 display_clients = set()
 
-SAMPLE_RATE = 100  # Hz
+SAMPLE_RATE = 20  # Hz
 DT = 1 / SAMPLE_RATE
+
+VP = 6.0   # speed of p-waves in km/s
+VS = 3.5   # speed of s-waves in km/s
 
 
 # P waves and S waves filtering
@@ -137,6 +140,19 @@ def integrate(signal, dt):
         integrated[i] = integrated[i-1] + 0.5 * (signal[i] + signal[i-1]) * dt
     return integrated
 
+# Arrival Detection
+
+def detect_arrival(signal, threshold=0.02):
+    """
+    Detects first significant wave arrival
+    using amplitude threshold.
+    """
+    for i, v in enumerate(signal):
+        if abs(v) > threshold:
+            return i
+    return None
+
+
 
 # signal processing function
 
@@ -157,15 +173,25 @@ def process_signal(buffer):
     displacement = integrate(velocity, DT)
     displacement /= np.max(np.abs(displacement)) + 1e-6
 
-    p_wave = high_pass(displacement, alpha=0.15)
-    s_wave = low_pass(displacement, alpha=0.05)
+    p_wave = high_pass(displacement, alpha=0.25)
+    s_wave = low_pass(displacement, alpha=0.03)
+
+    p_idx = detect_arrival(p_wave)
+    s_idx = detect_arrival(s_wave)
+
+    distance_km = None
+
+    if p_idx is not None and s_idx is not None and s_idx > p_idx:
+        delta_t = (s_idx - p_idx) / SAMPLE_RATE
+        distance_km = delta_t / ((1 / VS) - (1 / VP))
 
     return {
         "raw": acc.tolist(),
         "velocity": velocity.tolist(),
         "displacement": displacement.tolist(),
         "p_wave": p_wave,
-        "s_wave": s_wave
+        "s_wave": s_wave,
+        "distance_km": distance_km
     }
 
 
