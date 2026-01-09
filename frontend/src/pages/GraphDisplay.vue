@@ -7,16 +7,17 @@ const pwaveRef = ref(null);
 const swaveRef = ref(null);
 const dispRef = ref(null);
 const velocityRef = ref(null);
+const distRef = ref(null);
+const mapRef = ref(null);
 
 const distance = ref(null);
+const magnitude = ref(null);
 
-let rawChart = null;
-let pChart = null;
-let sChart = null;
-let dChart = null;
-let vChart = null;
+const waveTab = ref(0);
+const motionTab = ref(0);
 
-let socket = null;
+let rawChart, pChart, sChart, dChart, vChart, distChart;
+let mapCtx, socket;
 
 const MAX_POINTS = 200;
 
@@ -30,7 +31,8 @@ function createChart(ctx, label, color, yLabel = "Normalized") {
         data: [],
         borderColor: color,
         borderWidth: 2,
-        pointRadius: 0
+        pointRadius: 0,
+        tension: 0.25
       }]
     },
     options: {
@@ -40,8 +42,6 @@ function createChart(ctx, label, color, yLabel = "Normalized") {
       scales: {
         x: { display: false },
         y: {
-          suggestedMin: -1,
-          suggestedMax: 1,
           title: { display: true, text: yLabel }
         }
       }
@@ -65,52 +65,54 @@ function updateChart(chart, values) {
   chart.update("none");
 }
 
+function drawEpicenter(radiusKm) {
+  const ctx = mapCtx;
+  const w = mapRef.value.width;
+  const h = mapRef.value.height;
+
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.fillRect(0, 0, w, h);
+
+  const maxVisualRadius = Math.min(w, h) * 0.45;
+  
+  const rangeLimitKm = 200; 
+
+  const r = (radiusKm / rangeLimitKm) * maxVisualRadius * 40;
+
+  ctx.beginPath();
+  ctx.arc(w / 2, h / 2, 6, 0, Math.PI * 2);
+  ctx.fillStyle = "#2ecc71";
+  ctx.fill();
+
+  // Epicenter Circle
+  ctx.beginPath();
+  ctx.arc(w / 2, h / 2, r, 0, Math.PI * 2);
+  ctx.strokeStyle = "#9b59b6";
+  ctx.lineWidth = 5;
+  ctx.stroke();
+}
+
+
 onMounted(() => {
-  rawChart = createChart(
-    rawRef.value.getContext("2d"),
-    "Raw Acceleration",
-    "#95a5a6"
-  );
+  rawChart = createChart(rawRef.value.getContext("2d"), "Raw Acceleration", "#95a5a6");
+  pChart   = createChart(pwaveRef.value.getContext("2d"), "P-Wave", "#3498db");
+  sChart   = createChart(swaveRef.value.getContext("2d"), "S-Wave", "#e74c3c");
+  dChart   = createChart(dispRef.value.getContext("2d"), "Displacement", "#f1c40f", "Displacement");
+  vChart   = createChart(velocityRef.value.getContext("2d"), "Velocity", "#9b59b6", "Velocity");
+  distChart= createChart(distRef.value.getContext("2d"), "Epicenter Distance", "#2ecc71", "km");
 
-  pChart = createChart(
-    pwaveRef.value.getContext("2d"),
-    "P-Wave (High Frequency)",
-    "#3498db"
-  );
-
-  sChart = createChart(
-    swaveRef.value.getContext("2d"),
-    "S-Wave (Low Frequency)",
-    "#e74c3c"
-  );
-
-  dChart = createChart(
-    dispRef.value.getContext("2d"),
-    "Ground Displacement",
-    "#f1c40f",
-    "Relative Displacement"
-  );
-
-  vChart = createChart(
-    velocityRef.value.getContext("2d"),
-    "Ground Velocity",
-    "#9b59b6",
-    "Relative Velocity"
-  );
+  mapCtx = mapRef.value.getContext("2d");
+  mapCtx.fillStyle = "#000";
+  mapCtx.fillRect(0, 0, 250, 250);
 
   connectSocket();
 });
 
 function connectSocket() {
-  socket = new WebSocket("ws://192.168.30.186:8000/display");
-
-  socket.onopen = () => {
-    console.log("🖥️ Connected to backend");
-  };
+  socket = new WebSocket("ws://192.168.30.187:8000/display");
 
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
-    if (!data) return;
 
     updateChart(rawChart, data.raw);
     updateChart(pChart, data.p_wave);
@@ -120,11 +122,13 @@ function connectSocket() {
 
     if (data.distance_km !== null) {
       distance.value = data.distance_km.toFixed(1);
+      drawEpicenter(data.distance_km);
+      updateChart(distChart, [data.distance_km]);
     }
-  };
 
-  socket.onclose = () => {
-    console.warn("🖥️ WebSocket disconnected");
+    if (data.magnitude !== null) {
+      magnitude.value = data.magnitude;
+    }
   };
 }
 
@@ -134,100 +138,93 @@ onBeforeUnmount(() => {
   pChart?.destroy();
   sChart?.destroy();
   dChart?.destroy();
+  vChart?.destroy();
+  distChart?.destroy();
 });
 </script>
 
 <template>
-  <div class="display-container">
-    <h2>🖥️ Real-Time Digital Seismograph</h2>
-    <p class="subtitle">
-      Live ground vibration data streamed from mobile accelerometer
-    </p>
+<v-container fluid class="pa-6">
 
-    <div class="distance-box">
-      Estimated Epicenter Distance:
-      <strong>{{ distance }} km</strong>
-    </div>
+  <!-- HEADER -->
+  <v-card class="mb-4" elevation="6">
+    <v-card-title class="text-h5">
+      Real-Time Digital Seismograph
+    </v-card-title>
+    <v-card-subtitle>
+      Live seismic monitoring & epicenter estimation
+    </v-card-subtitle>
 
-    <v-divider class="my-4"></v-divider>
+    <v-card-text class="d-flex gap-4">
+      <v-chip color="deep-purple" variant="elevated" class="mx-2">
+        Distance: {{ distance ?? "--" }} km
+      </v-chip>
 
-    <div class="chart-wrapper raw">
-      <canvas ref="rawRef"></canvas>
-    </div>
+      <v-chip color="blue" variant="elevated" class="mx-2">
+        Magnitude: {{ magnitude ? magnitude.toFixed(2) : "--" }}
+      </v-chip>
+    </v-card-text>
+  </v-card>
 
-    <v-divider class="my-4" />
+  <!-- EPICENTER -->
+  <v-card class="mb-4" elevation="6">
+    <v-card-title>Epicenter (Radial Model)</v-card-title>
+    <v-card-text class="d-flex justify-center">
+      <div class="map-container">
+        <canvas ref="mapRef" width="250" height="250"></canvas>
+      </div>
+    </v-card-text>
+  </v-card>
 
-    <div class="chart-wrapper p">
-      <canvas ref="pwaveRef"></canvas>
-    </div>
+  <!-- WAVES -->
+  <v-card class="mb-4" elevation="6">
+    <v-card-title>Waveform Analysis</v-card-title>
 
-    <v-divider class="my-4" />
+    <v-tabs v-model="waveTab" grow>
+      <v-tab>Raw</v-tab>
+      <v-tab>P-Wave</v-tab>
+      <v-tab>S-Wave</v-tab>
+    </v-tabs>
 
-    <div class="chart-wrapper s">
-      <canvas ref="swaveRef"></canvas>
-    </div>
+    <v-card-text>
+      <div v-show="waveTab === 0" class="chart-box"><canvas ref="rawRef"/></div>
+      <div v-show="waveTab === 1" class="chart-box"><canvas ref="pwaveRef"/></div>
+      <div v-show="waveTab === 2" class="chart-box"><canvas ref="swaveRef"/></div>
+    </v-card-text>
+  </v-card>
 
-    <v-divider class="my-4" />
+  <!-- MOTION -->
+  <v-card class="mb-4" elevation="6">
+    <v-card-title>Ground Motion</v-card-title>
 
-    <div class="chart-wrapper displacement">
-      <canvas ref="dispRef"></canvas>
-    </div>
+    <v-tabs v-model="motionTab" grow>
+      <v-tab>Displacement</v-tab>
+      <v-tab>Velocity</v-tab>
+      <v-tab>Distance</v-tab>
+    </v-tabs>
 
-    <v-divider class="my-4" />
+    <v-card-text>
+      <div v-show="motionTab === 0" class="chart-box"><canvas ref="dispRef"/></div>
+      <div v-show="motionTab === 1" class="chart-box"><canvas ref="velocityRef"/></div>
+      <div v-show="motionTab === 2" class="chart-box"><canvas ref="distRef"/></div>
+    </v-card-text>
+  </v-card>
 
-    <div class="chart-wrapper velocity">
-      <canvas ref="velocityRef"></canvas>
-    </div>
-  </div>
+</v-container>
 </template>
 
 <style scoped>
-.display-container {
-  background: #0f0f0f;
-  color: #eaeaea;
-  padding: 20px;
-  min-height: 100vh;
+.chart-box {
+  height: 280px;
 }
 
-.subtitle {
-  font-size: 0.9rem;
-  color: #aaa;
-  margin-bottom: 16px;
+.chart-box canvas {
+  width: 100% !important;
+  height: 100% !important;
 }
 
-.chart-wrapper {
-  height: 300px;
-  background: #151515;
-  border-radius: 8px;
-  padding: 10px;
+.map-container {
+  width: 250px;
+  height: 250px;
 }
-
-.chart-wrapper.raw {
-  border-left: 4px solid #95a5a6;
-}
-
-.chart-wrapper.p {
-  border-left: 4px solid #3498db;
-}
-
-.chart-wrapper.s {
-  border-left: 4px solid #e74c3c;
-}
-
-.chart-wrapper.displacement {
-  border-left: 4px solid #f1c40f;
-}
-
-.chart-wrapper.velocity {
-  border-left: 4px solid #9b59b6;
-}
-
-.distance-box {
-  background: #111;
-  padding: 12px;
-  border-left: 4px solid #9b59b6;
-  margin-bottom: 16px;
-  font-size: 1.1rem;
-}
-
 </style>

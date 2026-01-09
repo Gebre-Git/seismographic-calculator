@@ -4,6 +4,7 @@
       <router-link to="/" class="tab-button" active-class="active">Simulation</router-link>
       <router-link to="/sensorview" class="tab-button" active-class="active">Sensor</router-link>
       <router-link to="/graphdisplay" class="tab-button" active-class="active">Graph Display</router-link>
+      <router-link to="/physicsmodel" class="tab-button" active-class="active">Physics Model</router-link>
     </nav>
 
     <div class="content">

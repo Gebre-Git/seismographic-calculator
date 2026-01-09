@@ -8,7 +8,7 @@ export default defineConfig({
     vuetify({ autoImport: true }),
   ],
   server: {
-    host: '192.168.30.186', // Replace with your specific IP address
-    port: 3000,           // Optional: Specify a port (default is 5173)
+    host: '192.168.30.187', // Replace with your specific IP address
+    port: 3000,           
   }
 })

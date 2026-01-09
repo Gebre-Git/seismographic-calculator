@@ -99,13 +99,14 @@ def simulate_quake(data: EarthquakeInput):
 # -----------------------------------------------------
 
 sensor_buffer = deque(maxlen=500)
+distance_buffer = deque(maxlen=200)
 display_clients = set()
 
 SAMPLE_RATE = 20  # Hz
 DT = 1 / SAMPLE_RATE
 
 VP = 6.0   # speed of p-waves in km/s
-VS = 3.5   # speed of s-waves in km/s
+VS = 3.5   # speed of s-waves in km/s 
 
 
 # P waves and S waves filtering
@@ -152,6 +153,13 @@ def detect_arrival(signal, threshold=0.02):
             return i
     return None
 
+# Magnitude Estimation
+
+def estimate_magnitude(displacement):
+    A = np.max(np.abs(displacement))
+    if A <= 1e-9:
+        return None
+    return float(np.log10(A) + 3)
 
 
 # signal processing function
@@ -165,7 +173,7 @@ def process_signal(buffer):
 
     acc = acc - np.mean(acc)
 
-    acc = acc / (np.max(np.abs(acc)) + 1e-6)
+    norm_acc = acc / (np.max(np.abs(acc)) + 1e-6)
 
     velocity = integrate(acc, DT)
     velocity -= np.mean(velocity)
@@ -173,8 +181,8 @@ def process_signal(buffer):
     displacement = integrate(velocity, DT)
     displacement /= np.max(np.abs(displacement)) + 1e-6
 
-    p_wave = high_pass(displacement, alpha=0.25)
-    s_wave = low_pass(displacement, alpha=0.03)
+    p_wave = high_pass(norm_acc, alpha=0.25)
+    s_wave = low_pass(norm_acc, alpha=0.03)
 
     p_idx = detect_arrival(p_wave)
     s_idx = detect_arrival(s_wave)
@@ -185,13 +193,22 @@ def process_signal(buffer):
         delta_t = (s_idx - p_idx) / SAMPLE_RATE
         distance_km = delta_t / ((1 / VS) - (1 / VP))
 
+    if distance_km is not None:
+        distance_buffer.append(distance_km)
+    else:
+        distance_buffer.append(None)
+
+    magnitude = estimate_magnitude(displacement)
+
     return {
-        "raw": acc.tolist(),
+        "raw": norm_acc.tolist(),
         "velocity": velocity.tolist(),
         "displacement": displacement.tolist(),
         "p_wave": p_wave,
         "s_wave": s_wave,
-        "distance_km": distance_km
+        "distance_km": distance_km,
+        "distance": list(distance_buffer),
+        "magnitude": magnitude,
     }
 
 
@@ -210,7 +227,8 @@ async def sensor_stream(ws: WebSocket):
             ay = float(data["ay"])
             az = float(data["az"])
 
-            sensor_buffer.append(az)
+            a = np.sqrt(ax**2 + ay**2 + az**2)
+            sensor_buffer.append(a)
 
             if len(sensor_buffer) >= 50:
                 processed = process_signal(sensor_buffer)
@@ -219,7 +237,8 @@ async def sensor_stream(ws: WebSocket):
                     for client in list(display_clients):
                         await client.send_json(processed)
 
-                sensor_buffer.clear()
+                while len(sensor_buffer) > 100:
+                    sensor_buffer.popleft()
 
     except WebSocketDisconnect:
         print("📱 Sensor disconnected")
