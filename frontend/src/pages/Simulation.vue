@@ -44,14 +44,14 @@ const initChart = () => {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 0 }, // disable chart.js animation for real-time
+      animation: { duration: 0 },
       scales: {
         x: { display: false },
         y: {
           display: true,
           min: -15,
           max: 15,
-          grid: { color: 'rgba(255,255,255,0.02)' },
+          grid: { color: 'rgba(16,185,129,0.1)' },
           ticks: { display: false }
         }
       },
@@ -76,7 +76,6 @@ const tick = () => {
 
   points.value.push({ x: now, y: val });
 
-  // Keep points within the duration window
   const cut = now - duration.value;
   points.value = points.value.filter(p => p.x > cut);
 
@@ -93,21 +92,32 @@ const tick = () => {
   animId = requestAnimationFrame(tick);
 };
 
-// Reset function
+// Reset function with animation
 const resetSimulation = () => {
-  points.value = [];
-  magnitude.value = 2.5;
-  frequency.value = 1.5;
-  duration.value = 10;
-  if (chart) {
-    chart.data.labels = [];
-    chart.data.datasets[0].data = [];
-    chart.update();
+  // Animate points fade-out from top
+  if (points.value.length) {
+    const fadeOut = setInterval(() => {
+      points.value = points.value.slice(0, Math.floor(points.value.length * 0.8));
+      if (points.value.length === 0) clearInterval(fadeOut);
+    }, 30);
   }
+
+  // Reset sliders after fade-out
+  setTimeout(() => {
+    magnitude.value = 2.5;
+    frequency.value = 1.5;
+    duration.value = 10;
+    points.value = [];
+    if (chart) {
+      chart.data.labels = [];
+      chart.data.datasets[0].data = [];
+      chart.update();
+    }
+  }, 300);
 };
 
 watch([magnitude, frequency, duration], () => {
-  // real-time adjustments are applied automatically in tick
+  // Real-time adjustments applied automatically
 });
 
 onMounted(() => {
@@ -133,7 +143,16 @@ onUnmounted(() => {
                   <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Magnitude</label>
                   <span class="text-emerald-400 font-mono text-lg">{{ magnitude.toFixed(1) }}</span>
                 </div>
-                <v-slider v-model="magnitude" min="0" max="10" step="0.1" color="emerald" hide-details></v-slider>
+                <v-slider
+                  v-model="magnitude"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  color="green"
+                  hide-details
+                  thumb-color="green"
+                  track-color="rgba(16,185,129,0.3)"
+                ></v-slider>
               </div>
 
               <div class="mb-6">
@@ -141,7 +160,16 @@ onUnmounted(() => {
                   <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Frequency</label>
                   <span class="text-emerald-400 font-mono text-lg">{{ frequency.toFixed(1) }}</span>
                 </div>
-                <v-slider v-model="frequency" min="0.1" max="5" step="0.1" color="emerald" hide-details></v-slider>
+                <v-slider
+                  v-model="frequency"
+                  min="0.1"
+                  max="5"
+                  step="0.1"
+                  color="green"
+                  hide-details
+                  thumb-color="green"
+                  track-color="rgba(16,185,129,0.3)"
+                ></v-slider>
               </div>
 
               <div class="mb-6">
@@ -149,11 +177,24 @@ onUnmounted(() => {
                   <label class="text-xs font-bold text-slate-400 uppercase tracking-widest">Duration</label>
                   <span class="text-emerald-400 font-mono text-lg">{{ duration }}s</span>
                 </div>
-                <v-slider v-model="duration" min="5" max="30" step="1" color="emerald" hide-details></v-slider>
+                <v-slider
+                  v-model="duration"
+                  min="5"
+                  max="30"
+                  step="1"
+                  color="green"
+                  hide-details
+                  thumb-color="green"
+                  track-color="rgba(16,185,129,0.3)"
+                ></v-slider>
               </div>
 
               <!-- Reset Button -->
-              <v-btn block color="red darken-2" class="mt-8" @click="resetSimulation">
+              <v-btn
+                block
+                class="mt-8 reset-btn"
+                @click="resetSimulation"
+              >
                 Reset
               </v-btn>
             </v-card>
@@ -161,7 +202,10 @@ onUnmounted(() => {
 
           <!-- Graph Area -->
           <v-col cols="12" md="9">
-            <v-card variant="outlined" class="pa-4 border-slate-800 bg-slate-900/40 rounded-xl h-[400px] relative overflow-hidden">
+            <v-card
+              variant="outlined"
+              class="pa-4 border-slate-800 bg-slate-900/40 rounded-xl h-[400px] relative overflow-hidden"
+            >
               <canvas ref="chartCanvas"></canvas>
             </v-card>
 
@@ -183,6 +227,19 @@ onUnmounted(() => {
 
 <style scoped>
 .bg-slate-950 { background-color: #020617; }
-.bg-slate-900\/40 { background-color: rgba(15, 23, 42, 0.4); }
+.bg-slate-900\/40 { background-color: rgba(15,23,42,0.4); }
 .border-slate-800 { border-color: #1e293b !important; }
+
+/* Reset Button Styling */
+.reset-btn {
+  background-color: #10b981;
+  color: white;
+  font-weight: bold;
+  transition: transform 0.2s, background-color 0.3s;
+}
+.reset-btn:hover {
+  background-color: #059669;
+  transform: scale(1.05);
+  box-shadow: 0 0 15px rgba(16,185,129,0.6);
+}
 </style>
