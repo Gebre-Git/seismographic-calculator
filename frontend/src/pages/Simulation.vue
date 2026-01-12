@@ -226,20 +226,65 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* existing styles */
 .bg-slate-950 { background-color: #020617; }
 .bg-slate-900\/40 { background-color: rgba(15,23,42,0.4); }
-.border-slate-800 { border-color: #1e293b !important; }
 
-/* Reset Button Styling */
+/* existing green glow base */
+.border-slate-800 {
+  border-color: #10b981 !important;
+  box-shadow:
+    0 0 6px rgba(16,185,129,0.35),
+    0 0 18px rgba(16,185,129,0.25),
+    inset 0 0 6px rgba(16,185,129,0.15);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+/* existing hover glow (this one will be OVERRIDDEN below) */
+.border-slate-800:hover {
+  box-shadow:
+    0 0 10px rgba(16,185,129,0.6),
+    0 0 28px rgba(16,185,129,0.35),
+    inset 0 0 8px rgba(16,185,129,0.25);
+}
+
+/* 👇👇👇 PASTE THE NEW CODE RIGHT HERE 👇👇👇 */
+
+/* 🌿 RESET BUTTON — GREEN + MODERN HOVER */
 .reset-btn {
-  background-color: #10b981;
-  color: white;
-  font-weight: bold;
-  transition: transform 0.2s, background-color 0.3s;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ecfdf5;
+  border: 1px solid rgba(16, 185, 129, 0.6);
+  box-shadow:
+    0 0 10px rgba(16, 185, 129, 0.35),
+    inset 0 0 6px rgba(16, 185, 129, 0.25);
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease;
 }
+
 .reset-btn:hover {
-  background-color: #059669;
-  transform: scale(1.05);
-  box-shadow: 0 0 15px rgba(16,185,129,0.6);
+  transform: translateY(-2px) scale(1.03);
+  background: linear-gradient(135deg, #34d399, #10b981);
+  box-shadow:
+    0 0 18px rgba(16, 185, 129, 0.7),
+    0 0 35px rgba(16, 185, 129, 0.4),
+    inset 0 0 10px rgba(16, 185, 129, 0.35);
 }
+
+.reset-btn:active {
+  transform: scale(0.98);
+}
+
+/* ✨ STRONGER GLOW ON HOVER — THIS OVERRIDES THE ONE ABOVE */
+.border-slate-800:hover {
+  box-shadow:
+    0 0 14px rgba(16, 185, 129, 0.7),
+    0 0 35px rgba(16, 185, 129, 0.45),
+    0 0 60px rgba(16, 185, 129, 0.25),
+    inset 0 0 12px rgba(16, 185, 129, 0.35);
+  transform: translateY(-2px);
+}
+
 </style>
