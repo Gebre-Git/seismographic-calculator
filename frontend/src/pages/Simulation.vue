@@ -2,57 +2,81 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import Chart from 'chart.js/auto';
 
-// Simulation parameters
+// --- Parameters ---
 const magnitude = ref(2.5);
 const frequency = ref(1.5);
 const duration = ref(10);
 
-// Chart and canvas refs
+// --- State ---
 const chartCanvas = ref(null);
 let chart = null;
 let animId = null;
-let lastTime = Date.now() / 1000;
-let phase = 0;
 
-// Points array for plotting
-const points = ref([]);
+// The "Buffer" holds the full simulation data from Python
+let playbackBuffer = []; 
+let playbackCursor = 0; 
 
-// Stats (optional minimal info for left panel)
+// The "Live Data" is what is currently shown on screen
+const maxPoints = 300; // How many points to keep on screen (window width)
+const liveLabels = new Array(maxPoints).fill('');
+const liveData = new Array(maxPoints).fill(0);
+
+// Stats
 const stats = ref([
-  { l: 'Max Amp', v: 0 },
-  { l: 'Buffer', v: 0 },
-  { l: 'Stability', v: '99.9%' }
+  { l: 'Max Disp', v: '0.00' },
+  { l: 'Buffer', v: '0%' },
+  { l: 'Status', v: 'Idle' }
 ]);
 
+// Physics Computations
+const physicsStats = ref([
+  { l: 'Amplitude', v: '0.00' },
+  { l: 'Energy', v: '0.00' },
+  { l: 'P-Wave Freq', v: '0.0' },
+  { l: 'S-Wave Freq', v: '0.0' },
+  { l: 'Surface Freq', v: '0.0' },
+  { l: 'Max Disp (Calc)', v: '0.00' }
+]);
+
+let debounceTimer = null;
+
+// --- Chart Initialization ---
 // Initialize chart
 const initChart = () => {
   if (!chartCanvas.value) return;
   const ctx = chartCanvas.value.getContext('2d');
+  
   chart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: [],
+      labels: liveLabels,
       datasets: [{
-        data: [],
+        data: liveData,
         borderColor: '#10b981',
         borderWidth: 2,
         pointRadius: 0,
         fill: false,
-        tension: 0.35
+        tension: 0.1,
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 0 },
+      animation: false,
+      interaction: { mode: 'nearest', intersect: false },
       scales: {
         x: { display: false },
         y: {
           display: true,
-          min: -15,
-          max: 15,
+          // 👇 CHANGED: Removed fixed min/max
+          // suggestedMin/Max keeps the graph from zooming in too much on tiny noise
+          suggestedMin: -10,
+          suggestedMax: 10,
+          // grace adds 20% empty space at the top/bottom so the line never hits the edge
+          grace: '20%', 
           grid: { color: 'rgba(16,185,129,0.1)' },
-          ticks: { display: false }
+          // 👇 OPTIONAL: Turn ticks ON if you want to see the numbers change
+          ticks: { display: true, color: '#64748b', font: { size: 10 } } 
         }
       },
       plugins: {
@@ -63,66 +87,103 @@ const initChart = () => {
   });
 };
 
-// Tick function for live plotting
+// --- API Fetcher ---
+const fetchSimulation = async () => {
+  stats.value[2].v = 'Simulating...';
+  
+  try {
+    const response = await fetch('http://127.0.0.1:8000/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        magnitude: magnitude.value,
+        frequency: frequency.value,
+        duration: duration.value
+      }),
+    });
+
+    if (!response.ok) throw new Error('Network error');
+
+    const data = await response.json();
+    
+    // LOAD THE BUFFER:
+    // We overwrite the buffer with the new earthquake event
+    playbackBuffer = data.waveform;
+    playbackCursor = 0; // Start playing from the beginning of the new wave
+    
+    // Compute max displacement from buffer (for verification against backend)
+    const maxDisp = playbackBuffer.reduce((max, val) => Math.max(max, Math.abs(val)), 0).toFixed(2);
+    stats.value[0].v = maxDisp;
+    
+    // Update physics stats from backend computations
+    physicsStats.value[0].v = data.amplitude.toFixed(2);
+    physicsStats.value[1].v = data.energy.toExponential(2);
+    physicsStats.value[2].v = data.p_wave_freq.toFixed(1);
+    physicsStats.value[3].v = data.s_wave_freq.toFixed(1);
+    physicsStats.value[4].v = data.surface_wave_freq.toFixed(1);
+    physicsStats.value[5].v = data.max_displacement.toFixed(2);
+    
+    stats.value[2].v = 'Streaming';
+
+  } catch (error) {
+    console.error("Simulation error:", error);
+    stats.value[2].v = 'Error';
+  }
+};
+
+// --- The Live Loop ---
 const tick = () => {
-  const now = Date.now() / 1000;
-  const dt = now - lastTime;
-  lastTime = now;
+  // 1. Get the next value
+  let nextValue = 0;
 
-  phase += dt * frequency.value * 2 * Math.PI;
-  const wave = Math.sin(phase);
-  const jitter = (Math.random() - 0.5) * 0.4;
-  const val = (wave + jitter) * magnitude.value;
-
-  points.value.push({ x: now, y: val });
-
-  const cut = now - duration.value;
-  points.value = points.value.filter(p => p.x > cut);
-
-  if (chart) {
-    chart.data.labels = points.value.map(p => '');
-    chart.data.datasets[0].data = points.value.map(p => p.y);
-    chart.update('none');
+  if (playbackCursor < playbackBuffer.length) {
+    // We are playing the earthquake event from the backend
+    nextValue = playbackBuffer[playbackCursor];
+    playbackCursor++;
+    
+    // Update stats progress
+    const progress = Math.round((playbackCursor / playbackBuffer.length) * 100);
+    stats.value[1].v = `${progress}%`;
+  } else {
+    // Buffer empty: Generate tiny background noise so the graph doesn't look "dead"
+    stats.value[2].v = 'Waiting';
+    nextValue = (Math.random() - 0.5) * 0.1; 
   }
 
-  // Update stats
-  stats.value[0].v = Math.max(...points.value.map(p => Math.abs(p.y))).toFixed(2);
-  stats.value[1].v = `${points.value.length} pts`;
+  // 2. Shift the live arrays (Queue behavior)
+  liveData.shift(); // Remove oldest
+  liveData.push(nextValue); // Add newest
+
+  // 3. Render
+  if (chart) {
+    chart.update('none'); // 'none' mode is crucial for high performance
+  }
 
   animId = requestAnimationFrame(tick);
 };
 
-// Reset function with animation
-const resetSimulation = () => {
-  // Animate points fade-out from top
-  if (points.value.length) {
-    const fadeOut = setInterval(() => {
-      points.value = points.value.slice(0, Math.floor(points.value.length * 0.8));
-      if (points.value.length === 0) clearInterval(fadeOut);
-    }, 30);
-  }
-
-  // Reset sliders after fade-out
-  setTimeout(() => {
-    magnitude.value = 2.5;
-    frequency.value = 1.5;
-    duration.value = 10;
-    points.value = [];
-    if (chart) {
-      chart.data.labels = [];
-      chart.data.datasets[0].data = [];
-      chart.update();
-    }
-  }, 300);
-};
-
+// --- Watchers ---
 watch([magnitude, frequency, duration], () => {
-  // Real-time adjustments applied automatically
+  // When slider moves, we prepare to fetch new physics data
+  // The graph keeps scrolling (tick is running), but we update the source
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    fetchSimulation();
+  }, 300); // 300ms delay to feel responsive but safe
 });
 
+const resetSimulation = () => {
+  magnitude.value = 2.5;
+  frequency.value = 1.5;
+  duration.value = 10;
+  // This triggers the watcher -> fetchSimulation
+};
+
+// --- Lifecycle ---
 onMounted(() => {
   initChart();
-  animId = requestAnimationFrame(tick);
+  fetchSimulation(); // Get initial data
+  animId = requestAnimationFrame(tick); // Start the live loop
 });
 
 onUnmounted(() => {
@@ -135,7 +196,6 @@ onUnmounted(() => {
     <v-main class="bg-slate-950">
       <v-container fluid class="pa-6">
         <v-row>
-          <!-- Controls Panel -->
           <v-col cols="12" md="3">
             <v-card variant="outlined" class="pa-6 border-slate-800 bg-slate-900/40 rounded-xl backdrop-blur-sm">
               <div class="mb-6">
@@ -189,18 +249,16 @@ onUnmounted(() => {
                 ></v-slider>
               </div>
 
-              <!-- Reset Button -->
               <v-btn
                 block
                 class="mt-8 reset-btn"
                 @click="resetSimulation"
               >
-                Reset
+                Trigger New Event
               </v-btn>
             </v-card>
           </v-col>
 
-          <!-- Graph Area -->
           <v-col cols="12" md="9">
             <v-card
               variant="outlined"
@@ -209,12 +267,21 @@ onUnmounted(() => {
               <canvas ref="chartCanvas"></canvas>
             </v-card>
 
-            <!-- Minimal Stats -->
             <v-row class="mt-4">
               <v-col v-for="s in stats" :key="s.l" cols="4">
                 <v-card variant="outlined" class="pa-4 border-slate-800 bg-slate-900/40 rounded-lg text-center">
                   <div class="text-[9px] text-slate-500 uppercase font-bold tracking-[0.3em] mb-1">{{ s.l }}</div>
                   <div class="font-mono text-xl text-emerald-400/80">{{ s.v }}</div>
+                </v-card>
+              </v-col>
+            </v-row>
+
+            <!-- New Physics Computations Section -->
+            <v-row class="mt-4">
+              <v-col v-for="p in physicsStats" :key="p.l" cols="4" md="2">
+                <v-card variant="outlined" class="pa-4 border-slate-800 bg-slate-900/40 rounded-lg text-center">
+                  <div class="text-[9px] text-slate-500 uppercase font-bold tracking-[0.3em] mb-1">{{ p.l }}</div>
+                  <div class="font-mono text-xl text-emerald-400/80">{{ p.v }}</div>
                 </v-card>
               </v-col>
             </v-row>
@@ -230,7 +297,6 @@ onUnmounted(() => {
 .bg-slate-950 { background-color: #020617; }
 .bg-slate-900\/40 { background-color: rgba(15,23,42,0.4); }
 
-/* existing green glow base */
 .border-slate-800 {
   border-color: #10b981 !important;
   box-shadow:
@@ -240,17 +306,6 @@ onUnmounted(() => {
   transition: box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
-/* existing hover glow (this one will be OVERRIDDEN below) */
-.border-slate-800:hover {
-  box-shadow:
-    0 0 10px rgba(16,185,129,0.6),
-    0 0 28px rgba(16,185,129,0.35),
-    inset 0 0 8px rgba(16,185,129,0.25);
-}
-
-/* 👇👇👇 PASTE THE NEW CODE RIGHT HERE 👇👇👇 */
-
-/* 🌿 RESET BUTTON — GREEN + MODERN HOVER */
 .reset-btn {
   background: linear-gradient(135deg, #10b981, #059669);
   color: #ecfdf5;
@@ -277,7 +332,6 @@ onUnmounted(() => {
   transform: scale(0.98);
 }
 
-/* ✨ STRONGER GLOW ON HOVER — THIS OVERRIDES THE ONE ABOVE */
 .border-slate-800:hover {
   box-shadow:
     0 0 14px rgba(16, 185, 129, 0.7),
@@ -286,5 +340,4 @@ onUnmounted(() => {
     inset 0 0 12px rgba(16, 185, 129, 0.35);
   transform: translateY(-2px);
 }
-
 </style>

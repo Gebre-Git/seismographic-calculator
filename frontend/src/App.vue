@@ -23,6 +23,13 @@
       >
         Graph Display
       </router-link>
+      <router-link
+        to="/physicsmodel"
+        class="tab-button"
+        active-class="active"
+      >
+        Physics Model
+      </router-link>
       <div class="tab-underline"></div>
     </nav>
 

@@ -29,7 +29,7 @@ class EarthquakeInput(BaseModel):
 
 @app.post("/simulate")
 def simulate_quake(data: EarthquakeInput):
-
+    energy = 10 ** (1.5 * data.magnitude)
     A = magnitude_to_amplitude(data.magnitude)
     
     dt = 0.01 
@@ -77,19 +77,17 @@ def simulate_quake(data: EarthquakeInput):
         recorded.append(x)
 
     recorded = np.array(recorded)
-
-    fft_vals = np.fft.fft(recorded)
-    freqs = np.fft.fftfreq(len(fft_vals), dt)
-
-    positive = freqs > 0
-    freqs = freqs[positive]
-    spectrum = np.abs(fft_vals[positive])
+    max_displacement = float(np.max(np.abs(recorded)))
 
     return {
         "time": t.tolist(),
         "waveform": recorded.tolist(),
-        "frequency": freqs.tolist(),
-        "spectrum": spectrum.tolist(),
+        "amplitude": float(A),
+        "energy": energy,
+        "p_wave_freq": data.frequency * 2,
+        "s_wave_freq": data.frequency,
+        "surface_wave_freq": data.frequency * 0.5,
+        "max_displacement": max_displacement
     }
 
 
