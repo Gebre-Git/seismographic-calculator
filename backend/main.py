@@ -93,33 +93,126 @@ def simulate_quake(data: EarthquakeInput):
     }
 
 
-#----------------------
-# WebSocket Part
-#----------------------
 
-sensor_buffer = deque(maxlen=500)  
-display_clients = set()             
+# ---------------------------------------------------
+# real time seismograph processing
+# -----------------------------------------------------
 
-SAMPLE_RATE = 100
+sensor_buffer = deque(maxlen=500)
+distance_buffer = deque(maxlen=200)
+display_clients = set()
+
+SAMPLE_RATE = 20  # Hz
+DT = 1 / SAMPLE_RATE
+
+VP = 6.0   # speed of p-waves in km/s
+VS = 3.5   # speed of s-waves in km/s 
+
+
+# P waves and S waves filtering
+
+def low_pass(signal, alpha=0.1):
+    """S-waves (lower frequency)"""
+    filtered = []
+    y = signal[0]
+    for x in signal:
+        y = y + alpha * (x - y)
+        filtered.append(y)
+    return filtered
+
+
+def high_pass(signal, alpha=0.1):
+    """P-waves (higher frequency)"""
+    filtered = []
+    y = signal[0]
+    prev_x = signal[0]
+    for x in signal:
+        y = alpha * (y + x - prev_x)
+        filtered.append(y)
+        prev_x = x
+    return filtered
+
+
+# Numerical Integration
+
+def integrate(signal, dt):
+    integrated = np.zeros(len(signal))
+    for i in range(1, len(signal)):
+        integrated[i] = integrated[i-1] + 0.5 * (signal[i] + signal[i-1]) * dt
+    return integrated
+
+# Arrival Detection
+
+def detect_arrival(signal, threshold=0.02):
+    """
+    Detects first significant wave arrival
+    using amplitude threshold.
+    """
+    for i, v in enumerate(signal):
+        if abs(v) > threshold:
+            return i
+    return None
+
+# Magnitude Estimation
+
+def estimate_magnitude(displacement):
+    A = np.max(np.abs(displacement))
+    if A <= 1e-9:
+        return None
+    return float(np.log10(A) + 3)
 
 
 # signal processing function
 
 def process_signal(buffer):
 
-    if len(buffer) < 20:
+    if len(buffer) < 50:
         return None
 
-    signal = np.array(buffer, dtype=float)
+    acc = np.array(buffer, dtype=float)
 
-    
-    signal = signal - np.mean(signal)
+    acc = acc - np.mean(acc)
 
-    signal = signal / (np.max(np.abs(signal)) + 1e-6)
+    norm_acc = acc / (np.max(np.abs(acc)) + 1e-6)
 
-    return signal.tolist()
+    velocity = integrate(acc, DT)
+    velocity -= np.mean(velocity)
 
-# sensor socket (phone)
+    displacement = integrate(velocity, DT)
+    displacement /= np.max(np.abs(displacement)) + 1e-6
+
+    p_wave = high_pass(norm_acc, alpha=0.25)
+    s_wave = low_pass(norm_acc, alpha=0.03)
+
+    p_idx = detect_arrival(p_wave)
+    s_idx = detect_arrival(s_wave)
+
+    distance_km = None
+
+    if p_idx is not None and s_idx is not None and s_idx > p_idx:
+        delta_t = (s_idx - p_idx) / SAMPLE_RATE
+        distance_km = delta_t / ((1 / VS) - (1 / VP))
+
+    if distance_km is not None:
+        distance_buffer.append(distance_km)
+    else:
+        distance_buffer.append(None)
+
+    magnitude = estimate_magnitude(displacement)
+
+    return {
+        "raw": norm_acc.tolist(),
+        "velocity": velocity.tolist(),
+        "displacement": displacement.tolist(),
+        "p_wave": p_wave,
+        "s_wave": s_wave,
+        "distance_km": distance_km,
+        "distance": list(distance_buffer),
+        "magnitude": magnitude,
+    }
+
+
+# sensor websocket
 
 @app.websocket("/sensor")
 async def sensor_stream(ws: WebSocket):
@@ -137,25 +230,21 @@ async def sensor_stream(ws: WebSocket):
             a = np.sqrt(ax**2 + ay**2 + az**2)
             sensor_buffer.append(a)
 
-            print(f"📥 Buffer size: {len(sensor_buffer)}")
-
-            if len(sensor_buffer) >= 20:
+            if len(sensor_buffer) >= 50:
                 processed = process_signal(sensor_buffer)
 
                 if processed:
-                    print("📤 Broadcasting waveform")
-
                     for client in list(display_clients):
-                        await client.send_json({
-                            "waveform": processed
-                        })
+                        await client.send_json(processed)
 
-                sensor_buffer.clear()
+                while len(sensor_buffer) > 100:
+                    sensor_buffer.popleft()
 
     except WebSocketDisconnect:
         print("📱 Sensor disconnected")
 
-# display socket (web client)
+
+# display websocket
 
 @app.websocket("/display")
 async def display_stream(ws: WebSocket):

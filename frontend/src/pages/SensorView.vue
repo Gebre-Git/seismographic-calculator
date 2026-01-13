@@ -1,15 +1,23 @@
 <script setup>
-import { ref, onBeforeUnmount } from "vue";
+import { ref, onBeforeUnmount, computed } from "vue";
 
 const status = ref("Idle");
 const connected = ref(false);
+const loading = ref(false);
 
 let socket = null;
 let motionHandler = null;
 
+const statusColor = computed(() => {
+  if (connected.value) return "success";
+  if (status.value.includes("error") || status.value.includes("denied")) return "error";
+  return "warning";
+});
+
 function startSensor() {
+  loading.value = true;
   if (typeof DeviceMotionEvent !== "undefined" &&
-      typeof DeviceMotionEvent.requestPermission === "function") {
+    typeof DeviceMotionEvent.requestPermission === "function") {
 
     DeviceMotionEvent.requestPermission()
       .then(permission => {
@@ -17,10 +25,12 @@ function startSensor() {
           connectSocket();
         } else {
           status.value = "Motion permission denied";
+          loading.value = false;
         }
       })
       .catch(err => {
         status.value = "Permission error";
+        loading.value = false;
         console.error(err);
       });
 
@@ -32,16 +42,15 @@ function startSensor() {
 function connectSocket() {
   status.value = "Connecting to backend...";
 
-  // change the IP address and port as needed
-  socket = new WebSocket("ws://192.168.8.145:8000/sensor");
+  socket = new WebSocket("ws://192.168.30.187:8000/sensor");
 
   socket.onopen = () => {
     connected.value = true;
+    loading.value = false;
     status.value = "Connected — sensor active";
 
     motionHandler = (event) => {
       if (!event.accelerationIncludingGravity) return;
-
       const acc = event.accelerationIncludingGravity;
 
       socket.send(JSON.stringify({
@@ -57,11 +66,13 @@ function connectSocket() {
 
   socket.onerror = () => {
     status.value = "WebSocket error";
+    loading.value = false;
   };
 
   socket.onclose = () => {
     status.value = "Disconnected";
     connected.value = false;
+    loading.value = false;
   };
 }
 
@@ -84,72 +95,43 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="sensor-container">
-    <h2>📱 Mobile Seismograph Sensor</h2>
+  <v-app theme="dark">
+    <v-main class="d-flex justify-center my-2">
+      <v-container maxWidth="400">
+        <v-card class="pa-6 text-center" elevation="10" rounded="xl">
 
-    <p class="status">
-      Status:
-      <span :class="{ ok: connected, bad: !connected }">
-        {{ status }}
-      </span>
-    </p>
+          <v-icon :icon="connected ? 'mdi-pulse' : 'mdi-cellphone-off'" size="64" :color="statusColor"
+            class="mb-4"></v-icon>
 
-    <button v-if="!connected" @click="startSensor">
-      ▶ Start Sensor
-    </button>
+          <h2 class="text-h5 font-weight-bold mb-2">Mobile Seismograph</h2>
 
-    <button v-else @click="stopSensor" class="stop">
-      ⏹ Stop Sensor
-    </button>
+          <v-chip :color="statusColor" variant="tonal" class="mb-6" label>
+            {{ status }}
+          </v-chip>
 
-    <p class="hint">
-      Place the phone on a table and tap nearby to generate vibrations.
-    </p>
-  </div>
+          <div class="mb-6">
+            <v-btn v-if="!connected" color="success" size="large" block rounded="lg" :loading="loading"
+              prepend-icon="mdi-play" @click="startSensor">
+              Start Sensor
+            </v-btn>
+
+            <v-btn v-else color="error" size="large" block rounded="lg" prepend-icon="mdi-stop" @click="stopSensor">
+              Stop Sensor
+            </v-btn>
+          </div>
+
+          <v-alert type="info" variant="text" density="compact" icon="mdi-information-outline">
+            Place the phone on a table and tap nearby to generate vibrations.
+          </v-alert>
+
+        </v-card>
+      </v-container>
+    </v-main>
+  </v-app>
 </template>
 
 <style scoped>
-.sensor-container {
-  min-height: 100vh;
-  background: #111;
-  color: #eee;
-  padding: 20px;
-  text-align: center;
-}
-
-button {
-  padding: 14px 22px;
-  font-size: 16px;
-  border-radius: 6px;
-  border: none;
-  margin-top: 15px;
-}
-
-button.stop {
-  background: #e74c3c;
-  color: white;
-}
-
-button:not(.stop) {
-  background: #2ecc71;
-  color: black;
-}
-
-.status {
-  margin: 10px 0;
-}
-
-.ok {
-  color: #2ecc71;
-}
-
-.bad {
-  color: #e67e22;
-}
-
-.hint {
-  margin-top: 20px;
-  font-size: 0.9rem;
-  color: #aaa;
+.v-main {
+  background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
 }
 </style>

@@ -7,4 +7,8 @@ export default defineConfig({
     vue(),
     vuetify({ autoImport: true }),
   ],
+  server: {
+    // host: '192.168.30.187', // Replace with your specific IP address
+    port: 3000,           
+  }
 })
