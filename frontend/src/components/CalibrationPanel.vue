@@ -229,12 +229,14 @@ watch(
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </div>
-      <div v-show="showCurrentValues" class="values-table">
-        <div v-for="s in sliders" :key="s.key" class="value-row">
-          <span class="value-key">{{ s.label }}</span>
-          <span class="value-num">{{ fmt(params[s.key], s.key) }}{{ s.unit }}</span>
+      <transition name="expand">
+        <div v-show="showCurrentValues" class="values-table">
+          <div v-for="s in sliders" :key="s.key" class="value-row">
+            <span class="value-key">{{ s.label }}</span>
+            <span class="value-num">{{ fmt(params[s.key], s.key) }}{{ s.unit }}</span>
+          </div>
         </div>
-      </div>
+      </transition>
     </div>
 
     <div class="divider"></div>
@@ -470,5 +472,23 @@ watch(
 }
 .apply-btn:active {
   transform: scale(0.97);
+}
+
+/* Expand Animation classes */
+.expand-enter-active,
+.expand-leave-active {
+  transition: all 0.3s ease-in-out;
+  overflow: hidden;
+  max-height: 150px; /* Adjust this if the content grows significantly */
+  opacity: 1;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0; /* Prevents jumping */
+  padding-top: 0;
+  padding-bottom: 0;
 }
 </style>
