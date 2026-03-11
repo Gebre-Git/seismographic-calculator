@@ -66,6 +66,12 @@ const selectedPreset = ref('default');
 // 'pendingChanges' is true if the sliders were moved but 'Apply' wasn't clicked
 const pendingChanges = ref(false);
 
+// Controls visibility of the Current Values section
+const showCurrentValues = ref(false);
+const toggleCurrentValues = () => {
+  showCurrentValues.value = !showCurrentValues.value;
+};
+
 // ---------------------------------------------------------------------------
 // Slider configurations (Declarative UI pattern)
 // ---------------------------------------------------------------------------
@@ -217,8 +223,13 @@ watch(
 
     <!-- Current values display -->
     <div class="values-grid">
-      <label class="section-label">Current Values</label>
-      <div class="values-table">
+      <div class="section-label toggle-header" @click="toggleCurrentValues">
+        <span>Current Values</span>
+        <svg class="toggle-icon" :class="{ 'is-open': showCurrentValues }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </div>
+      <div v-show="showCurrentValues" class="values-table">
         <div v-for="s in sliders" :key="s.key" class="value-row">
           <span class="value-key">{{ s.label }}</span>
           <span class="value-num">{{ fmt(params[s.key], s.key) }}{{ s.unit }}</span>
@@ -300,6 +311,24 @@ watch(
   text-transform: uppercase;
   color: #64748b;
   margin-bottom: 0.5rem;
+}
+
+.toggle-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 0.2rem 0;
+  transition: color 0.2s;
+}
+.toggle-header:hover {
+  color: #94a3b8;
+}
+.toggle-icon {
+  transition: transform 0.3s ease;
+}
+.toggle-icon.is-open {
+  transform: rotate(180deg);
 }
 
 /* Presets */
