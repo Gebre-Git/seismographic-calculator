@@ -9,6 +9,8 @@ const frequency = ref(1.5);
 const duration = ref(10);
 
 // --- Calibration Parameters ---
+// This reactive object stores the state used for simulation requests.
+// It is updated by the CalibrationPanel component or via reset.
 const calibration = reactive({
   amplitude_scale: 1.0,
   noise_level: 0.03,
@@ -109,6 +111,7 @@ const fetchSimulation = async () => {
         magnitude: magnitude.value,
         frequency: frequency.value,
         duration: duration.value,
+        // Include full calibration context in every request
         calibration: { ...calibration },
       }),
     });
@@ -184,6 +187,8 @@ watch([magnitude, frequency, duration], () => {
 });
 
 // Watch calibration params — debounced live re-simulation
+// This allows users to drag sliders and see the waveform update in real-time
+// without overwhelming the backend with requests.
 watch(
   [() => calibration.amplitude_scale, () => calibration.noise_level,
    () => calibration.sensor_sensitivity, () => calibration.baseline_offset,
@@ -192,13 +197,14 @@ watch(
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       fetchSimulation();
-    }, 400);
+    }, 400); // 400ms debounce for calibration changes
   }
 );
 
+// Triggered when CalibrationPanel clicks 'Apply' or a Preset
 const onCalibrationChange = (newParams) => {
   Object.assign(calibration, newParams);
-  // immediate fetch (CalibrationPanel's Apply was clicked)
+  // immediate fetch (No debounce needed as this is a deliberate user action)
   clearTimeout(debounceTimer);
   fetchSimulation();
 };

@@ -26,6 +26,10 @@ def magnitude_to_amplitude(magnitude):
 
 
 class EarthquakeInput(BaseModel):
+    """
+    Standard input for a seismic simulation.
+    Now includes an optional 'calibration' object to tune the signal post-simulation.
+    """
     magnitude: float
     duration: float
     frequency: float
@@ -81,10 +85,14 @@ def simulate_quake(data: EarthquakeInput):
 
     recorded = np.array(recorded)
 
-    # --- Apply calibration (if provided) ---
+    # --- Calibration Integration Layer ---
+    # 1. Fallback to default params if none provided by client
     calib = data.calibration if data.calibration is not None else CalibrationParams()
+    
+    # 2. Apply post-processing (Separated from physics logic)
     calibrated_waveform, calibrated_time = apply_calibration(recorded, t, calib)
 
+    # 3. Compute final metrics from the calibrated signal
     max_displacement = float(np.max(np.abs(calibrated_waveform)))
 
     return {
@@ -96,14 +104,17 @@ def simulate_quake(data: EarthquakeInput):
         "s_wave_freq": data.frequency,
         "surface_wave_freq": data.frequency * 0.5,
         "max_displacement": max_displacement,
-        "calibration": calib.model_dump(),
+        "calibration": calib.model_dump(), # Echo back the used calibration
     }
 
 
 
 @app.get("/calibration/presets")
 def get_calibration_presets():
-    """Return all available calibration preset profiles."""
+    """
+    Metadata endpoint for the UI to discover available calibration profiles.
+    Returns the schema defined in calibration.py.
+    """
     return PRESETS
 
 

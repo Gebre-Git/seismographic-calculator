@@ -1,10 +1,11 @@
 <script setup>
 import { ref, reactive, watch, defineEmits } from 'vue';
 
+// Define events to communicate with the parent (Simulation.vue)
 const emit = defineEmits(['calibration-change']);
 
 // ---------------------------------------------------------------------------
-// Preset definitions (mirror backend PRESETS)
+// Preset definitions (Must mirror backend/calibration.py PRESETS)
 // ---------------------------------------------------------------------------
 const PRESETS = {
   default: {
@@ -41,6 +42,7 @@ const PRESETS = {
   },
 };
 
+// Convert PRESETS object to a flat array for v-for rendering
 const presetOptions = Object.entries(PRESETS).map(([key, val]) => ({
   value: key,
   title: val.label,
@@ -57,12 +59,15 @@ const DEFAULT_PARAMS = {
   time_scale: 1.0,
 };
 
+// 'params' holds the local working copy of calibration values
 const params = reactive({ ...DEFAULT_PARAMS });
 const selectedPreset = ref('default');
+
+// 'pendingChanges' is true if the sliders were moved but 'Apply' wasn't clicked
 const pendingChanges = ref(false);
 
 // ---------------------------------------------------------------------------
-// Slider configs
+// Slider configurations (Declarative UI pattern)
 // ---------------------------------------------------------------------------
 const sliders = [
   {
@@ -90,7 +95,7 @@ const sliders = [
     min: 0.1,
     max: 5.0,
     step: 0.1,
-    description: 'Sensor gain multiplier',
+    description: 'Sensor gain multiplier (Instrument specific)',
   },
   {
     key: 'baseline_offset',
@@ -99,7 +104,7 @@ const sliders = [
     min: -2.0,
     max: 2.0,
     step: 0.05,
-    description: 'DC bias / baseline shift',
+    description: 'DC bias / constant baseline shift',
   },
   {
     key: 'time_scale',
@@ -113,20 +118,22 @@ const sliders = [
 ];
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helper functions
 // ---------------------------------------------------------------------------
+
+// Formats numeric values based on the parameter type
 const fmt = (val, key) => {
   if (key === 'noise_level' || key === 'baseline_offset') return val.toFixed(2);
   return val.toFixed(1);
 };
 
-// Emit current params to parent
+// Push local params up to the parent component
 const emitChange = () => {
   pendingChanges.value = false;
   emit('calibration-change', { ...params });
 };
 
-// Apply a preset profile
+// Bulk-update params based on a preset profile
 const applyPreset = (key) => {
   if (!PRESETS[key]) return;
   const p = PRESETS[key];
@@ -134,15 +141,15 @@ const applyPreset = (key) => {
     params[k] = p[k];
   });
   selectedPreset.value = key;
-  emitChange();
+  emitChange(); // Auto-apply when switching presets
 };
 
-// Reset to factory defaults
+// Factory reset
 const resetToDefaults = () => {
   applyPreset('default');
 };
 
-// Mark pending on any slider interaction
+// Watch for any deep change in params to toggle the 'pending' UI indicator
 watch(
   () => ({ ...params }),
   () => { pendingChanges.value = true; },
