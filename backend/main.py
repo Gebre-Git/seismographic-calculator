@@ -1,8 +1,11 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+from typing import Optional
 import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
 from collections import deque
+
+from calibration import CalibrationParams, apply_calibration, PRESETS
 
 app = FastAPI()
 
@@ -23,9 +26,14 @@ def magnitude_to_amplitude(magnitude):
 
 
 class EarthquakeInput(BaseModel):
+    """
+    Standard input for a seismic simulation.
+    Now includes an optional 'calibration' object to tune the signal post-simulation.
+    """
     magnitude: float
     duration: float
     frequency: float
+    calibration: Optional[CalibrationParams] = None
 
 @app.post("/simulate")
 def simulate_quake(data: EarthquakeInput):
@@ -58,12 +66,11 @@ def simulate_quake(data: EarthquakeInput):
 
     ground_motion = p_wave + s_wave + surface_wave
 
-   
+    # Base physics noise (always applied before calibration)
     noise_strength = 0.03 * A
     noise = np.random.normal(0, noise_strength, size=len(t))
     ground_motion += noise
 
-   
     m, k, c = 1.0, 20.0, 5.0
     x, v = 0.0, 0.0
     recorded = []
@@ -77,19 +84,38 @@ def simulate_quake(data: EarthquakeInput):
         recorded.append(x)
 
     recorded = np.array(recorded)
-    max_displacement = float(np.max(np.abs(recorded)))
+
+    # --- Calibration Integration Layer ---
+    # 1. Fallback to default params if none provided by client
+    calib = data.calibration if data.calibration is not None else CalibrationParams()
+    
+    # 2. Apply post-processing (Separated from physics logic)
+    calibrated_waveform, calibrated_time = apply_calibration(recorded, t, calib)
+
+    # 3. Compute final metrics from the calibrated signal
+    max_displacement = float(np.max(np.abs(calibrated_waveform)))
 
     return {
-        "time": t.tolist(),
-        "waveform": recorded.tolist(),
+        "time": calibrated_time.tolist(),
+        "waveform": calibrated_waveform.tolist(),
         "amplitude": float(A),
         "energy": energy,
         "p_wave_freq": data.frequency * 2,
         "s_wave_freq": data.frequency,
         "surface_wave_freq": data.frequency * 0.5,
-        "max_displacement": max_displacement
+        "max_displacement": max_displacement,
+        "calibration": calib.model_dump(), # Echo back the used calibration
     }
 
+
+
+@app.get("/calibration/presets")
+def get_calibration_presets():
+    """
+    Metadata endpoint for the UI to discover available calibration profiles.
+    Returns the schema defined in calibration.py.
+    """
+    return PRESETS
 
 
 # ---------------------------------------------------

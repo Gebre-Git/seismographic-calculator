@@ -1,11 +1,23 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, watch } from 'vue';
 import Chart from 'chart.js/auto';
+import CalibrationPanel from '../components/CalibrationPanel.vue';
 
 // --- Parameters ---
 const magnitude = ref(2.5);
 const frequency = ref(1.5);
 const duration = ref(10);
+
+// --- Calibration Parameters ---
+// This reactive object stores the state used for simulation requests.
+// It is updated by the CalibrationPanel component or via reset.
+const calibration = reactive({
+  amplitude_scale: 1.0,
+  noise_level: 0.03,
+  sensor_sensitivity: 1.0,
+  baseline_offset: 0.0,
+  time_scale: 1.0,
+});
 
 // --- State ---
 const chartCanvas = ref(null);
@@ -98,7 +110,9 @@ const fetchSimulation = async () => {
       body: JSON.stringify({
         magnitude: magnitude.value,
         frequency: frequency.value,
-        duration: duration.value
+        duration: duration.value,
+        // Include full calibration context in every request
+        calibration: { ...calibration },
       }),
     });
 
@@ -172,10 +186,39 @@ watch([magnitude, frequency, duration], () => {
   }, 300); // 300ms delay to feel responsive but safe
 });
 
+// Watch calibration params — debounced live re-simulation
+// This allows users to drag sliders and see the waveform update in real-time
+// without overwhelming the backend with requests.
+watch(
+  [() => calibration.amplitude_scale, () => calibration.noise_level,
+   () => calibration.sensor_sensitivity, () => calibration.baseline_offset,
+   () => calibration.time_scale],
+  () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      fetchSimulation();
+    }, 400); // 400ms debounce for calibration changes
+  }
+);
+
+// Triggered when CalibrationPanel clicks 'Apply' or a Preset
+const onCalibrationChange = (newParams) => {
+  Object.assign(calibration, newParams);
+  // immediate fetch (No debounce needed as this is a deliberate user action)
+  clearTimeout(debounceTimer);
+  fetchSimulation();
+};
+
 const resetSimulation = () => {
   magnitude.value = 2.5;
   frequency.value = 1.5;
   duration.value = 10;
+  // Reset calibration to defaults
+  calibration.amplitude_scale = 1.0;
+  calibration.noise_level = 0.03;
+  calibration.sensor_sensitivity = 1.0;
+  calibration.baseline_offset = 0.0;
+  calibration.time_scale = 1.0;
   // This triggers the watcher -> fetchSimulation
 };
 
@@ -256,6 +299,11 @@ onUnmounted(() => {
               >
                 Trigger New Event
               </v-btn>
+
+              <!-- Calibration Panel -->
+              <div class="mt-6">
+                <CalibrationPanel @calibration-change="onCalibrationChange" />
+              </div>
             </v-card>
           </v-col>
 
